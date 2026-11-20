@@ -1,140 +1,283 @@
-# BlackBox-economy-engine
-BLACKBOX is a deterministic economic simulation engine where autonomous businesses set prices, manage supply chains, take on debt, and survive or go bankrupt. Trigger shocks, clone worlds, run A/B and Monte Carlo experiments, replay any run, and trace failures to their root causes. ML predicts business risk; an AI analyst explains real data.  
+# BLACKBOX Economy Engine
 
+> A deterministic, replayable economic simulation where autonomous businesses set prices, manage supply chains, take on debt, and survive or go bankrupt. Trigger shocks, clone worlds, run A/B and Monte Carlo experiments, and trace any failure back to its root cause.
 
-Think of BLACKBOX as five layers. Each layer only talks to the one next to it, so you can change one without breaking the others.
+![Status](https://img.shields.io/badge/status-in%20development-amber)
+![Java](https://img.shields.io/badge/Java-21-blue)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3-green)
+![React](https://img.shields.io/badge/React-TypeScript-61dafb)
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-1. The Engine (the brain)
+> **Status:** Under active development as a 30-day build. The roadmap below tracks what is finished. Nothing is marked done until it works and its tests pass.
 
-This is a pure Java module with no web or database code. Its only job is to take a world state and advance it by one tick, following fixed rules. It works like a game engine for economics: you give it a starting state and a seed, and it produces the next state.
+---
 
-Inside it are five ideas:
+## Table of Contents
 
-State: a snapshot of the world (businesses, consumers, suppliers, products, cash, stock).
-Rules: how demand, pricing, production, and bankruptcy work.
-Ledger: a double-entry record of every money movement, so money can never appear or vanish.
-Event log: an append-only history of everything that happened, each entry pointing to its cause.
-Seeded randomness: a controlled source of chance so the same seed always gives the same result.
-2. The Agents (the decision-makers)
+1. [What is BLACKBOX?](#what-is-blackbox)
+2. [Design Principles](#design-principles)
+3. [Features](#features)
+4. [Architecture](#architecture)
+5. [Tick Pipeline](#tick-pipeline)
+6. [Algorithms and Why They Are Used](#algorithms-and-why-they-are-used)
+7. [Tech Stack](#tech-stack)
+8. [Repository Structure](#repository-structure)
+9. [Getting Started](#getting-started)
+10. [30-Day Roadmap](#30-day-roadmap)
+11. [Testing and Quality](#testing-and-quality)
+12. [Limitations](#limitations)
+13. [License](#license)
 
-Businesses don’t change the world directly. Each tick, a business looks at what it can see (prices, rivals, its own cash and stock), scores its options, and submits intents such as “set price to X” or “order 100 units.”
+---
 
-The engine then acts as a referee. It checks each intent against reality (does the business have the cash? does the stock exist?) and either executes it or rejects it with a logged reason. This separation of proposing from deciding is what stops any agent, or any AI, from cheating the economy.
+## What is BLACKBOX?
 
-3. The Tick (how time works)
+BLACKBOX is a persistent artificial economy. Businesses, consumers, suppliers, and industries interact through markets, supply chains, and economic events. You can:
 
-Time moves in discrete steps. Every tick runs the same phases in the same order:
+- Create simulated economic worlds and watch them run live.
+- Inspect any business: its P&L, inventory, debt, and the reasons behind its decisions.
+- Trigger shocks (demand crash, supplier failure, cost spike, interest-rate change) and watch them propagate.
+- Clone a world at any point, change variables, and compare outcomes side by side.
+- Run Monte Carlo experiments to get survival probabilities instead of single outcomes.
+- Ask an AI analyst questions that are answered from real simulation data.
 
-Shocks fire.
-Agents observe.
-Agents decide.
-The engine validates.
-Suppliers deliver.
-Consumers buy.
-Money settles.
-Books update.
-Insolvent businesses fail.
-Metrics are recorded.
+The simulation engine is the star. ML and AI are supporting layers that read state and never change it.
 
-A fixed order matters because it makes outcomes predictable and debuggable. If the order changed, the same seed could give different results.
+**This is a simplified, documented model. It is not a prediction of any real national economy.**
 
-4. The Application Layer (the wrapper)
+---
 
-Spring Boot wraps the engine and adds everything the engine deliberately doesn’t know about:
+## Design Principles
 
-API: lets the frontend create worlds and control runs.
-Persistence: saves worlds, events, and snapshots to PostgreSQL.
-Scenarios: forks a world from a snapshot to create a branch.
-Analytics: computes comparisons and Monte Carlo summaries.
-Security: users, ownership, and rate limits.
+1. **Deterministic.** The same seed and config always produce the same event-log hash.
+2. **Money is conserved.** Every transfer is double-entry. Total money equals initial money plus logged injections, checked every tick.
+3. **Agents propose, the engine decides.** Agents emit intents. The engine validates them against cash, stock, and capacity.
+4. **Everything is traceable.** Every state change is an event with a `causeId`, which enables replay and causal tracing.
+5. **Engine independent of everything else.** `engine-core` is pure Java with no Spring dependency.
+6. **LLMs never mutate state.** The AI analyst has read-only tools.
+7. **Money is `long` cents.** No floating-point currency.
 
-Because the engine is separate, you can run thousands of copies in memory for Monte Carlo without touching the web layer at all.
+---
 
-5. The Intelligence Layer (the observers)
+## Features
 
-Two services read the simulation but never write to it:
+| Feature | Description |
+|---|---|
+| Live simulation | Play, pause, step, and speed controls with a WebSocket tick stream |
+| Autonomous businesses | Utility-scored policies for pricing, inventory, and cash management |
+| Supply-chain graph | Interactive graph sized by systemic importance, with failure highlighting |
+| Economic shocks | Scheduled or manual events with downstream propagation |
+| Bankruptcy and liquidation | Insolvency rules with recorded losses |
+| Causal tracing | "Why did this business fail?" answered as an event chain |
+| Scenario cloning and A/B | Fork from a snapshot, change parameters, compare branches |
+| Monte Carlo | Many seeds in parallel, with survival and percentile reports |
+| Replay | Scrub to any tick from snapshots and the event log |
+| ML risk prediction | Probability a business goes bankrupt within N ticks |
+| AI analyst | Read-only tool-calling over analytics, citing tick and entity IDs |
 
-ML service: learns from many past runs to estimate the chance a business goes bankrupt soon. It is only a prediction about this simulated world.
-AI analyst: answers questions by calling read-only tools on real data and citing the tick and entity involved. It explains the numbers and never invents them.
-6. The Frontend (the window)
+---
 
-The UI doesn’t hold any economic logic. It displays what the backend streams to it: live charts, the business inspector, the supply graph, the event timeline, and scenario comparisons.
+## Architecture
 
-How the pieces connect
-User action → API → Engine advances world → Events + snapshots saved
-                                          → Metrics streamed to UI
-Saved data → ML trains / Analyst reads → insights shown in UI
-The four ideas that hold it together
-Idea	Why it matters
-Determinism	Same seed gives the same result, which makes experiments trustworthy
-Conservation	Total money is always accounted for, which keeps the economy honest
-Traceability	Every change has a cause, so you can answer “why did this happen?”
-Separation	The engine, agents, API, and AI each have one job, which keeps the project buildable in 30 days
-Why this order of building
+A modular monolith. No Kafka, Kubernetes, or microservices unless the workload justifies it.
 
-You build from the inside out: engine first, then agents, then persistence and API, then UI, then ML and AI. Each layer depends only on the ones before it, so at any point in the 30 days you have something that works, rather than a half-finished everything.
+```
+┌─────────────┐   REST / WebSocket   ┌──────────────────────────────┐
+│  Frontend   │ ───────────────────► │  Spring Boot app             │
+│ React + TS  │ ◄─────────────────── │  world · scenarios · API     │
+└─────────────┘                      │  analytics · prediction · ai │
+                                     └──────┬───────────────┬───────┘
+                                            │               │
+                              ┌─────────────▼───┐     ┌─────▼────────┐
+                              │  engine-core    │     │ ML service   │
+                              │  (pure Java)    │     │ FastAPI      │
+                              └─────────────────┘     └──────────────┘
+                                            │
+                                     ┌──────▼──────┐
+                                     │ PostgreSQL  │
+                                     └─────────────┘
+```
 
+---
 
+## Tick Pipeline
 
-Core idea: Build inside-out. Make each layer trustworthy before adding the next.
+Each tick (one simulated day) runs these phases in a fixed order:
 
-Week 1: Rules (Days 1-7). Build a correct, repeatable economy: seeded randomness, a double-entry ledger, demand, inventory, and bankruptcy. Proof: 100 businesses run 1,000 ticks, the books balance, and results are identical every time.
-Week 2: Agents (Days 8-14). Businesses propose actions and the engine decides. Add pricing and stock policies, calibration, the supply graph, shocks, persistence, and the API. Proof: the engine runs through the API.
-Week 3: Interface (Days 15-21). Make it visible and testable: live UI, charts, business inspector, graph, causal tracing, and scenario cloning. Proof: clone a world, shock one branch, compare the two.
-Week 4: Evidence (Days 22-30). Run Monte Carlo, add replay, ML risk prediction, and a read-only AI analyst, then finish with security, tests, Docker, and the demo. Proof: a clean clone runs end to end, and every claim is backed by data.
+| # | Phase | What happens |
+|---|---|---|
+| 1 | Events | Scheduled shocks fire and apply effects |
+| 2 | Perception | Agents observe prices, competitors, stock, cash |
+| 3 | Decision | Agents score options and emit intents |
+| 4 | Validation | Engine checks each intent; invalid ones are rejected and logged |
+| 5 | Procurement | Supplier orders resolve; lead times create in-transit goods |
+| 6 | Market clearing | Demand is allocated by price, reputation, and availability |
+| 7 | Settlement | Ledger transfers for sales, wages, rent, interest |
+| 8 | Accounting | P&L, cash flow, debt service, reputation update |
+| 9 | Bankruptcy | Insolvency check and liquidation |
+| 10 | Metrics | Aggregates, conservation check, periodic snapshot |
 
-Four rules throughout:
+---
 
-Correctness before features.
-Constraints create realism.
-Every outcome has a traceable cause.
-Be honest about limits.
+## Algorithms and Why They Are Used
 
-If behind: cut AI, ML, and polish first, and never cut the ledger, determinism, or event log.
+| Algorithm | Purpose in BLACKBOX |
+|---|---|
+| Priority queue | Event scheduler and delivery arrivals, ordered by tick |
+| Topological sort | Production order in the supply DAG; cycle detection on world validation |
+| BFS | Shock propagation by hop distance |
+| Dijkstra | Cheapest or fastest sourcing route (price plus lead time) |
+| PageRank | Systemic importance of suppliers |
+| Union-Find | Network fragmentation after bankruptcies |
+| DFS | Causal-chain extraction from `causeId` links |
+| Monte Carlo | Survival probability and outcome percentiles across seeds |
+
+Time and space complexity, test cases, and benchmarks live in `docs/algorithms.md` and `docs/benchmarks.md` as each algorithm is built.
+
+---
+
+## Tech Stack
+
+| Area | Technology |
+|---|---|
+| Engine | Java 21 (pure, no Spring) |
+| Backend | Spring Boot, Spring Security, Spring Data JPA, Flyway |
+| Database | PostgreSQL |
+| Frontend | React, TypeScript, Vite, Tailwind CSS, Framer Motion, Zustand, TanStack Query, ECharts or Recharts, React Flow or Cytoscape.js |
+| ML | Python, FastAPI, pandas, NumPy, scikit-learn, XGBoost (optional) |
+| Infra | Docker, Docker Compose, GitHub Actions, Actuator and Prometheus |
+
+---
+
+## Repository Structure
+
+```
 blackbox-economy-engine/
 ├── backend/
-│   ├── engine-core/            # Pure Java, no Spring (the brain)
-│   │   ├── model/              # Business, Consumer, Supplier, Product, Industry
-│   │   ├── ledger/             # Double-entry accounts, transfers, conservation check
-│   │   ├── tick/               # Phase pipeline, WorldState, snapshots
-│   │   ├── agents/             # Intents, policies, utility scoring, strategy params
-│   │   ├── markets/            # Demand, elasticity, market clearing
-│   │   ├── supplychain/        # Graph, topo sort, Dijkstra, PageRank, BFS, Union-Find
-│   │   ├── events/             # Event log (causeId), priority-queue scheduler, shocks
-│   │   └── rng/                # Seeded random streams
-│   │
-│   ├── app/                    # Spring Boot modular monolith (the wrapper)
-│   │   ├── world/              # Create and manage worlds
-│   │   ├── simulation/         # Run, pause, step, stream ticks
-│   │   ├── scenarios/          # Clone from snapshot, A/B compare
-│   │   ├── analytics/          # Metrics, Monte Carlo summaries
-│   │   ├── prediction/         # Client for the ML service
-│   │   ├── ai/                 # Read-only analyst tools
-│   │   ├── security/           # JWT, ownership, rate limits
-│   │   ├── persistence/        # JPA entities and repositories
-│   │   └── config/
-│   │
-│   └── db/migrations/          # Flyway SQL
-│
-├── ml-service/                 # Python FastAPI
-│   ├── features/               # Cash runway, debt ratio, supplier dependence
-│   ├── training/               # Baseline and boosted models
-│   ├── evaluation/             # AUC, precision, recall, held-out seeds
-│   └── api/                    # /predict
-│
-├── frontend/                   # React + TypeScript + Vite
-│   ├── components/             # Charts, inspector, graph, timeline
-│   ├── pages/                  # Dashboard, world, scenarios, replay
-│   ├── store/                  # Zustand
-│   ├── api/                    # TanStack Query + WebSocket client
-│   └── theme/                  # Design tokens
-│
-├── docs/
-│   ├── economic-model.md       # Formulas and rules
-│   ├── algorithms.md           # Purpose, complexity, tests
-│   ├── calibration.md
-│   └── benchmarks.md
-│
+│   ├── engine-core/     # Pure Java: model, ledger, tick, agents, markets,
+│   │                    # supplychain, events, rng
+│   ├── app/             # Spring Boot: world, simulation, scenarios,
+│   │                    # analytics, prediction, ai, security, persistence
+│   └── db/migrations/   # Flyway
+├── ml-service/          # FastAPI: features, training, evaluation, /predict
+├── frontend/            # React + TypeScript + Vite
+├── docs/                # economic-model.md, algorithms.md, calibration.md,
+│                        # benchmarks.md
 ├── docker-compose.yml
-├── .env.example
-└── .github/workflows/          # Build, test, determinism check
+└── .github/workflows/
+```
+
+---
+
+## Getting Started
+
+> Commands below become valid as the matching roadmap days are completed.
+
+```bash
+# Clone
+git clone https://github.com/Sidhkataria222-hub/blackbox-economy-engine.git
+cd blackbox-economy-engine
+
+# Configure environment
+cp .env.example .env
+
+# Run the full stack
+docker compose up --build
+
+# Run the engine headless (available after Day 7)
+./gradlew :engine-core:run --args="run --config worlds/stable.json --ticks 1000"
+
+# Run all tests
+./gradlew test
+```
+
+Environment variables (see `.env.example`): database credentials, ML service URL, JWT secret, and the LLM API key. No secrets are committed to the repo.
+
+---
+
+## 30-Day Roadmap
+
+Check items off only when the feature works and its tests pass.
+
+### Week 1: Engine Core
+
+- [ ] **Day 1:** Repo, Gradle multi-module, Docker Compose (Postgres), CI, economic model spec
+- [ ] **Day 2:** Domain model, seeded RNG streams, world config and generator
+- [ ] **Day 3:** Double-entry ledger with overdraft rejection and conservation invariant
+- [ ] **Day 4:** Tick pipeline, event log with `causeId`, deterministic hash test
+- [ ] **Day 5:** Consumer demand, price elasticity, market clearing
+- [ ] **Day 6:** Inventory, procurement, supplier lead times, production
+- [ ] **Day 7:** Expenses, debt, bankruptcy, liquidation, headless CLI
+
+**Milestone:** 100 businesses run 1,000 ticks from the CLI, books balance, results deterministic.
+
+### Week 2: Agents, Graph, Persistence
+
+- [ ] **Day 8:** Agent framework: intents, utility scoring, strategy parameters
+- [ ] **Day 9:** Pricing, inventory, and cash policies; competitor analysis
+- [ ] **Day 10:** Calibration and three presets (`stable`, `competitive`, `fragile`)
+- [ ] **Day 11:** Supply-chain graph, topological sort, Dijkstra sourcing, PageRank
+- [ ] **Day 12:** Shock system with priority-queue scheduler and BFS propagation
+- [ ] **Day 13:** Flyway schema, persistence of worlds, runs, events, snapshots
+- [ ] **Day 14:** REST API with validation, error handling, integration tests
+
+**Milestone:** The full engine is drivable through the API.
+
+### Week 3: UI and Scenarios
+
+- [ ] **Day 15:** Frontend shell, dark command-center theme, design tokens
+- [ ] **Day 16:** WebSocket live stream and simulation controls
+- [ ] **Day 17:** Core charts: output, prices, market share, bankruptcies
+- [ ] **Day 18:** Business inspector with decision log and reasons
+- [ ] **Day 19:** Supply-chain graph view with PageRank sizing and failure highlighting
+- [ ] **Day 20:** Event timeline, shock panel, causal trace view
+- [ ] **Day 21:** Scenario cloning and A/B comparison
+
+**Milestone:** Clone a world, trigger a shock in one branch, compare the two.
+
+### Week 4: Monte Carlo, ML, AI, Ship
+
+- [ ] **Day 22:** Monte Carlo runner, survival and percentile report, benchmark
+- [ ] **Day 23:** Replay scrubber from snapshots and event log
+- [ ] **Day 24:** ML dataset export and feature engineering
+- [ ] **Day 25:** Train, evaluate (baseline vs boosted), serve `/predict`, UI risk badges
+- [ ] **Day 26:** AI analyst with read-only, whitelisted tools and cited answers
+- [ ] **Day 27:** Spring Security, JWT, per-user worlds, rate limits
+- [ ] **Day 28:** Logging, Prometheus metrics, determinism regression test in CI
+- [ ] **Day 29:** Full Docker stack, README polish, algorithms and benchmark docs
+- [ ] **Day 30:** Demo script, recording, limitations section, final cleanup
+
+**Milestone:** A clean clone runs end to end from this README alone.
+
+### Cut List (if behind schedule)
+
+Cut in this order: Redis, DP optimization, Cytoscape polish, Arena, Reports, XGBoost (keep the logistic baseline), Replay UI.
+
+**Never cut:** ledger invariant, determinism, event log with causes, scenario cloning, Monte Carlo.
+
+---
+
+## Testing and Quality
+
+- **Determinism:** a golden-seed test fails CI if the event-log hash changes unintentionally.
+- **Conservation:** the ledger invariant is asserted on every tick in tests.
+- **Boundary:** a test verifies `engine-core` has no Spring imports.
+- **Scenario cloning:** clones match the original exactly until the fork tick.
+- **Monte Carlo:** results are identical regardless of thread count.
+- **ML:** evaluated on held-out seeds, with the baseline model reported alongside.
+- **AI:** a test proves the analyst cannot call any mutating endpoint.
+
+---
+
+## Limitations
+
+- The economy is a simplified model and does not represent any real economy.
+- ML risk predictions apply only to this simulated world and its parameters.
+- Calibration is tuned for stability in the shipped presets; extreme custom configs may collapse or explode.
+- Features not yet checked off in the roadmap are not implemented.
+
+---
+
+## License
+
+MIT. See `LICENSE`.
