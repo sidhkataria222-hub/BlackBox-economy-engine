@@ -73,3 +73,68 @@ Separation	The engine, agents, API, and AI each have one job, which keeps the pr
 Why this order of building
 
 You build from the inside out: engine first, then agents, then persistence and API, then UI, then ML and AI. Each layer depends only on the ones before it, so at any point in the 30 days you have something that works, rather than a half-finished everything.
+
+
+
+Core idea: Build inside-out. Make each layer trustworthy before adding the next.
+
+Week 1: Rules (Days 1-7). Build a correct, repeatable economy: seeded randomness, a double-entry ledger, demand, inventory, and bankruptcy. Proof: 100 businesses run 1,000 ticks, the books balance, and results are identical every time.
+Week 2: Agents (Days 8-14). Businesses propose actions and the engine decides. Add pricing and stock policies, calibration, the supply graph, shocks, persistence, and the API. Proof: the engine runs through the API.
+Week 3: Interface (Days 15-21). Make it visible and testable: live UI, charts, business inspector, graph, causal tracing, and scenario cloning. Proof: clone a world, shock one branch, compare the two.
+Week 4: Evidence (Days 22-30). Run Monte Carlo, add replay, ML risk prediction, and a read-only AI analyst, then finish with security, tests, Docker, and the demo. Proof: a clean clone runs end to end, and every claim is backed by data.
+
+Four rules throughout:
+
+Correctness before features.
+Constraints create realism.
+Every outcome has a traceable cause.
+Be honest about limits.
+
+If behind: cut AI, ML, and polish first, and never cut the ledger, determinism, or event log.
+blackbox-economy-engine/
+├── backend/
+│   ├── engine-core/            # Pure Java, no Spring (the brain)
+│   │   ├── model/              # Business, Consumer, Supplier, Product, Industry
+│   │   ├── ledger/             # Double-entry accounts, transfers, conservation check
+│   │   ├── tick/               # Phase pipeline, WorldState, snapshots
+│   │   ├── agents/             # Intents, policies, utility scoring, strategy params
+│   │   ├── markets/            # Demand, elasticity, market clearing
+│   │   ├── supplychain/        # Graph, topo sort, Dijkstra, PageRank, BFS, Union-Find
+│   │   ├── events/             # Event log (causeId), priority-queue scheduler, shocks
+│   │   └── rng/                # Seeded random streams
+│   │
+│   ├── app/                    # Spring Boot modular monolith (the wrapper)
+│   │   ├── world/              # Create and manage worlds
+│   │   ├── simulation/         # Run, pause, step, stream ticks
+│   │   ├── scenarios/          # Clone from snapshot, A/B compare
+│   │   ├── analytics/          # Metrics, Monte Carlo summaries
+│   │   ├── prediction/         # Client for the ML service
+│   │   ├── ai/                 # Read-only analyst tools
+│   │   ├── security/           # JWT, ownership, rate limits
+│   │   ├── persistence/        # JPA entities and repositories
+│   │   └── config/
+│   │
+│   └── db/migrations/          # Flyway SQL
+│
+├── ml-service/                 # Python FastAPI
+│   ├── features/               # Cash runway, debt ratio, supplier dependence
+│   ├── training/               # Baseline and boosted models
+│   ├── evaluation/             # AUC, precision, recall, held-out seeds
+│   └── api/                    # /predict
+│
+├── frontend/                   # React + TypeScript + Vite
+│   ├── components/             # Charts, inspector, graph, timeline
+│   ├── pages/                  # Dashboard, world, scenarios, replay
+│   ├── store/                  # Zustand
+│   ├── api/                    # TanStack Query + WebSocket client
+│   └── theme/                  # Design tokens
+│
+├── docs/
+│   ├── economic-model.md       # Formulas and rules
+│   ├── algorithms.md           # Purpose, complexity, tests
+│   ├── calibration.md
+│   └── benchmarks.md
+│
+├── docker-compose.yml
+├── .env.example
+└── .github/workflows/          # Build, test, determinism check
